@@ -8,19 +8,19 @@
     }
    },
    "source": [
-    "## Evaluating Chunk Sizes in Simple RAG\n",
+    "# Introduction to Simple RAG\n",
     "\n",
-    "Choosing the right chunk size is crucial for improving retrieval accuracy in a Retrieval-Augmented Generation (RAG) pipeline. The goal is to balance retrieval performance with response quality.\n",
+    "Retrieval-Augmented Generation (RAG) is a hybrid approach that combines information retrieval with generative models. It enhances the performance of language models by incorporating external knowledge, which improves accuracy and factual correctness.\n",
     "\n",
-    "This section evaluates different chunk sizes by:\n",
+    "In a Simple RAG setup, we follow these steps:\n",
     "\n",
-    "1. Extracting text from a PDF.\n",
-    "2. Splitting text into chunks of varying sizes.\n",
-    "3. Creating embeddings for each chunk.\n",
-    "4. Retrieving relevant chunks for a query.\n",
-    "5. Generating a response using retrieved chunks.\n",
-    "6. Evaluating faithfulness and relevancy.\n",
-    "7. Comparing results for different chunk sizes."
+    "1. **Data Ingestion**: Load and preprocess the text data.\n",
+    "2. **Chunking**: Break the data into smaller chunks to improve retrieval performance.\n",
+    "3. **Embedding Creation**: Convert the text chunks into numerical representations using an embedding model.\n",
+    "4. **Semantic Search**: Retrieve relevant chunks based on a user query.\n",
+    "5. **Response Generation**: Use a language model to generate a response based on retrieved text.\n",
+    "\n",
+    "This notebook implements a Simple RAG approach, evaluates the model’s response, and explores various improvements."
    ]
   },
   {
@@ -48,6 +48,79 @@
    "cell_type": "markdown",
    "metadata": {},
    "source": [
+    "## Extracting Text from a PDF File\n",
+    "To implement RAG, we first need a source of textual data. In this case, we extract text from a PDF file using the PyMuPDF library."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 2,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def extract_text_from_pdf(pdf_path):\n",
+    "    \"\"\"\n",
+    "    Extracts text from a PDF file and prints the first `num_chars` characters.\n",
+    "\n",
+    "    Args:\n",
+    "    pdf_path (str): Path to the PDF file.\n",
+    "\n",
+    "    Returns:\n",
+    "    str: Extracted text from the PDF.\n",
+    "    \"\"\"\n",
+    "    # Open the PDF file\n",
+    "    mypdf = fitz.open(pdf_path)\n",
+    "    all_text = \"\"  # Initialize an empty string to store the extracted text\n",
+    "\n",
+    "    # Iterate through each page in the PDF\n",
+    "    for page_num in range(mypdf.page_count):\n",
+    "        page = mypdf[page_num]  # Get the page\n",
+    "        text = page.get_text(\"text\")  # Extract text from the page\n",
+    "        all_text += text  # Append the extracted text to the all_text string\n",
+    "\n",
+    "    return all_text  # Return the extracted text"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Chunking the Extracted Text\n",
+    "Once we have the extracted text, we divide it into smaller, overlapping chunks to improve retrieval accuracy."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": 3,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "def chunk_text(text, n, overlap):\n",
+    "    \"\"\"\n",
+    "    Chunks the given text into segments of n characters with overlap.\n",
+    "\n",
+    "    Args:\n",
+    "    text (str): The text to be chunked.\n",
+    "    n (int): The number of characters in each chunk.\n",
+    "    overlap (int): The number of overlapping characters between chunks.\n",
+    "\n",
+    "    Returns:\n",
+    "    List[str]: A list of text chunks.\n",
+    "    \"\"\"\n",
+    "    chunks = []  # Initialize an empty list to store the chunks\n",
+    "    \n",
+    "    # Loop through the text with a step size of (n - overlap)\n",
+    "    for i in range(0, len(text), n - overlap):\n",
+    "        # Append a chunk of text from index i to i + n to the chunks list\n",
+    "        chunks.append(text[i:i + n])\n",
+    "\n",
+    "    return chunks  # Return the list of text chunks"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
     "## Setting Up the OpenAI API Client\n",
     "We initialize the OpenAI client to generate embeddings and responses."
    ]
@@ -69,122 +142,8 @@
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "## Extracting Text from the PDF\n",
-    "First, we will extract text from the `AI_Information.pdf` file."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 3,
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Understanding Artificial Intelligence \n",
-      "Chapter 1: Introduction to Artificial Intelligence \n",
-      "Artificial intelligence (AI) refers to the ability of a digital computer or computer-controlled robot \n",
-      "to perform tasks commonly associated with intelligent beings. The term is frequently applied to \n",
-      "the project of developing systems endowed with the intellectual processes characteristic of \n",
-      "humans, such as the ability to reason, discover meaning, generalize, or learn from past \n",
-      "experience. Over the past f\n"
-     ]
-    }
-   ],
-   "source": [
-    "def extract_text_from_pdf(pdf_path):\n",
-    "    \"\"\"\n",
-    "    Extracts text from a PDF file.\n",
-    "\n",
-    "    Args:\n",
-    "    pdf_path (str): Path to the PDF file.\n",
-    "\n",
-    "    Returns:\n",
-    "    str: Extracted text from the PDF.\n",
-    "    \"\"\"\n",
-    "    # Open the PDF file\n",
-    "    mypdf = fitz.open(pdf_path)\n",
-    "    all_text = \"\"  # Initialize an empty string to store the extracted text\n",
-    "    \n",
-    "    # Iterate through each page in the PDF\n",
-    "    for page in mypdf:\n",
-    "        # Extract text from the current page and add spacing\n",
-    "        all_text += page.get_text(\"text\") + \" \"\n",
-    "\n",
-    "    # Return the extracted text, stripped of leading/trailing whitespace\n",
-    "    return all_text.strip()\n",
-    "\n",
-    "# Define the path to the PDF file\n",
-    "pdf_path = \"data/AI_Information.pdf\"\n",
-    "\n",
-    "# Extract text from the PDF file\n",
-    "extracted_text = extract_text_from_pdf(pdf_path)\n",
-    "\n",
-    "# Print the first 500 characters of the extracted text\n",
-    "print(extracted_text[:500])"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "## Chunking the Extracted Text\n",
-    "To improve retrieval, we split the extracted text into overlapping chunks of different sizes."
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 4,
-   "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "Chunk Size: 128, Number of Chunks: 326\n",
-      "Chunk Size: 256, Number of Chunks: 164\n",
-      "Chunk Size: 512, Number of Chunks: 82\n"
-     ]
-    }
-   ],
-   "source": [
-    "def chunk_text(text, n, overlap):\n",
-    "    \"\"\"\n",
-    "    Splits text into overlapping chunks.\n",
-    "\n",
-    "    Args:\n",
-    "    text (str): The text to be chunked.\n",
-    "    n (int): Number of characters per chunk.\n",
-    "    overlap (int): Overlapping characters between chunks.\n",
-    "\n",
-    "    Returns:\n",
-    "    List[str]: A list of text chunks.\n",
-    "    \"\"\"\n",
-    "    chunks = []  # Initialize an empty list to store the chunks\n",
-    "    for i in range(0, len(text), n - overlap):\n",
-    "        # Append a chunk of text from the current index to the index + chunk size\n",
-    "        chunks.append(text[i:i + n])\n",
-    "    \n",
-    "    return chunks  # Return the list of text chunks\n",
-    "\n",
-    "# Define different chunk sizes to evaluate\n",
-    "chunk_sizes = [128, 256, 512]\n",
-    "\n",
-    "# Create a dictionary to store text chunks for each chunk size\n",
-    "text_chunks_dict = {size: chunk_text(extracted_text, size, size // 5) for size in chunk_sizes}\n",
-    "\n",
-    "# Print the number of chunks created for each chunk size\n",
-    "for size, chunks in text_chunks_dict.items():\n",
-    "    print(f\"Chunk Size: {size}, Number of Chunks: {len(chunks)}\")"
-   ]
-  },
-  {
-   "cell_type": "markdown",
-   "metadata": {},
-   "source": [
-    "## Creating Embeddings for Text Chunks\n",
-    "Embeddings convert text into numerical representations for similarity search."
+    "## Extracting and Chunking Text from a PDF File\n",
+    "Now, we load the PDF, extract text, and split it into chunks."
    ]
   },
   {
@@ -193,43 +152,52 @@
    "metadata": {},
    "outputs": [
     {
-     "name": "stderr",
+     "name": "stdout",
      "output_type": "stream",
      "text": [
-      "Generating Embeddings: 100%|██████████| 3/3 [00:11<00:00,  3.71s/it]\n"
+      "Number of text chunks: 42\n",
+      "\n",
+      "First text chunk:\n",
+      "Understanding Artificial Intelligence \n",
+      "Chapter 1: Introduction to Artificial Intelligence \n",
+      "Artificial intelligence (AI) refers to the ability of a digital computer or computer-controlled robot \n",
+      "to perform tasks commonly associated with intelligent beings. The term is frequently applied to \n",
+      "the project of developing systems endowed with the intellectual processes characteristic of \n",
+      "humans, such as the ability to reason, discover meaning, generalize, or learn from past \n",
+      "experience. Over the past few decades, advancements in computing power and data availability \n",
+      "have significantly accelerated the development and deployment of AI. \n",
+      "Historical Context \n",
+      "The idea of artificial intelligence has existed for centuries, often depicted in myths and fiction. \n",
+      "However, the formal field of AI research began in the mid-20th century. The Dartmouth Workshop \n",
+      "in 1956 is widely considered the birthplace of AI. Early AI research focused on problem-solving \n",
+      "and symbolic methods. The 1980s saw a rise in exp\n"
      ]
     }
    ],
    "source": [
-    "from tqdm import tqdm\n",
+    "# Define the path to the PDF file\n",
+    "pdf_path = \"data/AI_Information.pdf\"\n",
     "\n",
-    "def create_embeddings(texts, model=\"BAAI/bge-en-icl\"):\n",
-    "    \"\"\"\n",
-    "    Generates embeddings for a list of texts.\n",
+    "# Extract text from the PDF file\n",
+    "extracted_text = extract_text_from_pdf(pdf_path)\n",
     "\n",
-    "    Args:\n",
-    "    texts (List[str]): List of input texts.\n",
-    "    model (str): Embedding model.\n",
+    "# Chunk the extracted text into segments of 1000 characters with an overlap of 200 characters\n",
+    "text_chunks = chunk_text(extracted_text, 1000, 200)\n",
     "\n",
-    "    Returns:\n",
-    "    List[np.ndarray]: List of numerical embeddings.\n",
-    "    \"\"\"\n",
-    "    # Create embeddings using the specified model\n",
-    "    response = client.embeddings.create(model=model, input=texts)\n",
-    "    # Convert the response to a list of numpy arrays and return\n",
-    "    return [np.array(embedding.embedding) for embedding in response.data]\n",
+    "# Print the number of text chunks created\n",
+    "print(\"Number of text chunks:\", len(text_chunks))\n",
     "\n",
-    "# Generate embeddings for each chunk size\n",
-    "# Iterate over each chunk size and its corresponding chunks in the text_chunks_dict\n",
-    "chunk_embeddings_dict = {size: create_embeddings(chunks) for size, chunks in tqdm(text_chunks_dict.items(), desc=\"Generating Embeddings\")}"
+    "# Print the first text chunk\n",
+    "print(\"\\nFirst text chunk:\")\n",
+    "print(text_chunks[0])"
    ]
   },
   {
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "## Performing Semantic Search\n",
-    "We use cosine similarity to find the most relevant text chunks for a user query."
+    "## Creating Embeddings for Text Chunks\n",
+    "Embeddings transform text into numerical vectors, which allow for efficient similarity search."
    ]
   },
   {
@@ -238,20 +206,35 @@
    "metadata": {},
    "outputs": [],
    "source": [
-    "def cosine_similarity(vec1, vec2):\n",
+    "def create_embeddings(text, model=\"BAAI/bge-en-icl\"):\n",
     "    \"\"\"\n",
-    "    Computes cosine similarity between two vectors.\n",
+    "    Creates embeddings for the given text using the specified OpenAI model.\n",
     "\n",
     "    Args:\n",
-    "    vec1 (np.ndarray): First vector.\n",
-    "    vec2 (np.ndarray): Second vector.\n",
+    "    text (str): The input text for which embeddings are to be created.\n",
+    "    model (str): The model to be used for creating embeddings. Default is \"BAAI/bge-en-icl\".\n",
     "\n",
     "    Returns:\n",
-    "    float: Cosine similarity score.\n",
+    "    dict: The response from the OpenAI API containing the embeddings.\n",
     "    \"\"\"\n",
+    "    # Create embeddings for the input text using the specified model\n",
+    "    response = client.embeddings.create(\n",
+    "        model=model,\n",
+    "        input=text\n",
+    "    )\n",
     "\n",
-    "    # Compute the dot product of the two vectors\n",
-    "    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))"
+    "    return response  # Return the response containing the embeddings\n",
+    "\n",
+    "# Create embeddings for the text chunks\n",
+    "response = create_embeddings(text_chunks)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Performing Semantic Search\n",
+    "We implement cosine similarity to find the most relevant text chunks for a user query."
    ]
   },
   {
@@ -260,66 +243,62 @@
    "metadata": {},
    "outputs": [],
    "source": [
-    "def retrieve_relevant_chunks(query, text_chunks, chunk_embeddings, k=5):\n",
+    "def cosine_similarity(vec1, vec2):\n",
     "    \"\"\"\n",
-    "    Retrieves the top-k most relevant text chunks.\n",
-    "    \n",
+    "    Calculates the cosine similarity between two vectors.\n",
+    "\n",
     "    Args:\n",
-    "    query (str): User query.\n",
-    "    text_chunks (List[str]): List of text chunks.\n",
-    "    chunk_embeddings (List[np.ndarray]): Embeddings of text chunks.\n",
-    "    k (int): Number of top chunks to return.\n",
-    "    \n",
+    "    vec1 (np.ndarray): The first vector.\n",
+    "    vec2 (np.ndarray): The second vector.\n",
+    "\n",
     "    Returns:\n",
-    "    List[str]: Most relevant text chunks.\n",
+    "    float: The cosine similarity between the two vectors.\n",
     "    \"\"\"\n",
-    "    # Generate an embedding for the query - pass query as a list and get first item\n",
-    "    query_embedding = create_embeddings([query])[0]\n",
-    "    \n",
-    "    # Calculate cosine similarity between the query embedding and each chunk embedding\n",
-    "    similarities = [cosine_similarity(query_embedding, emb) for emb in chunk_embeddings]\n",
-    "    \n",
-    "    # Get the indices of the top-k most similar chunks\n",
-    "    top_indices = np.argsort(similarities)[-k:][::-1]\n",
-    "    \n",
-    "    # Return the top-k most relevant text chunks\n",
-    "    return [text_chunks[i] for i in top_indices]"
+    "    # Compute the dot product of the two vectors and divide by the product of their norms\n",
+    "    return np.dot(vec1, vec2) / (np.linalg.norm(vec1) * np.linalg.norm(vec2))"
    ]
   },
   {
    "cell_type": "code",
    "execution_count": 8,
    "metadata": {},
-   "outputs": [
-    {
-     "name": "stdout",
-     "output_type": "stream",
-     "text": [
-      "['AI enables personalized medicine by analyzing individual patient data, predicting treatment \\nresponses, and tailoring interventions. Personalized medicine enhances treatment effectiveness \\nand reduces adverse effects. \\nRobotic Surgery \\nAI-powered robotic s', ' analyzing biological data, predicting drug \\nefficacy, and identifying potential drug candidates. AI-powered systems reduce the time and cost \\nof bringing new treatments to market. \\nPersonalized Medicine \\nAI enables personalized medicine by analyzing indiv', 'g \\npatient outcomes, and assisting in treatment planning. AI-powered tools enhance accuracy, \\nefficiency, and patient care. \\nDrug Discovery and Development \\nAI accelerates drug discovery and development by analyzing biological data, predicting drug \\neffica', 'mains. \\nThese applications include: \\nHealthcare \\nAI is transforming healthcare through applications such as medical diagnosis, drug discovery, \\npersonalized medicine, and robotic surgery. AI-powered tools can analyze medical images, \\npredict patient outcom', 'Personalized Learning \\nAI enables personalized learning experiences by adapting to individual student needs and \\nlearning styles. AI-powered platforms provide customized content, feedback, and pacing, \\nenhancing student engagement and outcomes. \\nAdaptive A']\n"
-     ]
-    }
-   ],
+   "outputs": [],
    "source": [
-    "# Load the validation data from a JSON file\n",
-    "with open('data/val.json') as f:\n",
-    "    data = json.load(f)\n",
+    "def semantic_search(query, text_chunks, embeddings, k=5):\n",
+    "    \"\"\"\n",
+    "    Performs semantic search on the text chunks using the given query and embeddings.\n",
     "\n",
-    "# Extract the first query from the validation data\n",
-    "query = data[3]['question']\n",
+    "    Args:\n",
+    "    query (str): The query for the semantic search.\n",
+    "    text_chunks (List[str]): A list of text chunks to search through.\n",
+    "    embeddings (List[dict]): A list of embeddings for the text chunks.\n",
+    "    k (int): The number of top relevant text chunks to return. Default is 5.\n",
     "\n",
-    "# Retrieve relevant chunks for each chunk size\n",
-    "retrieved_chunks_dict = {size: retrieve_relevant_chunks(query, text_chunks_dict[size], chunk_embeddings_dict[size]) for size in chunk_sizes}\n",
+    "    Returns:\n",
+    "    List[str]: A list of the top k most relevant text chunks based on the query.\n",
+    "    \"\"\"\n",
+    "    # Create an embedding for the query\n",
+    "    query_embedding = create_embeddings(query).data[0].embedding\n",
+    "    similarity_scores = []  # Initialize a list to store similarity scores\n",
     "\n",
-    "# Print retrieved chunks for chunk size 256\n",
-    "print(retrieved_chunks_dict[256])"
+    "    # Calculate similarity scores between the query embedding and each text chunk embedding\n",
+    "    for i, chunk_embedding in enumerate(embeddings):\n",
+    "        similarity_score = cosine_similarity(np.array(query_embedding), np.array(chunk_embedding.embedding))\n",
+    "        similarity_scores.append((i, similarity_score))  # Append the index and similarity score\n",
+    "\n",
+    "    # Sort the similarity scores in descending order\n",
+    "    similarity_scores.sort(key=lambda x: x[1], reverse=True)\n",
+    "    # Get the indices of the top k most similar text chunks\n",
+    "    top_indices = [index for index, _ in similarity_scores[:k]]\n",
+    "    # Return the top k most relevant text chunks\n",
+    "    return [text_chunks[index] for index in top_indices]\n"
    ]
   },
   {
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "## Generating a Response Based on Retrieved Chunks\n",
-    "Let's  generate a response based on the retrieved text for chunk size `256`."
+    "## Running a Query on Extracted Chunks"
    ]
   },
   {
@@ -331,58 +310,73 @@
      "name": "stdout",
      "output_type": "stream",
      "text": [
-      "AI contributes to personalized medicine by analyzing individual patient data, predicting treatment responses, and tailoring interventions. This enables personalized medicine to enhance treatment effectiveness and reduce adverse effects.\n"
+      "Query: What is 'Explainable AI' and why is it considered important?\n",
+      "Context 1:\n",
+      "systems. Explainable AI (XAI) \n",
+      "techniques aim to make AI decisions more understandable, enabling users to assess their \n",
+      "fairness and accuracy. \n",
+      "Privacy and Data Protection \n",
+      "AI systems often rely on large amounts of data, raising concerns about privacy and data \n",
+      "protection. Ensuring responsible data handling, implementing privacy-preserving techniques, \n",
+      "and complying with data protection regulations are crucial. \n",
+      "Accountability and Responsibility \n",
+      "Establishing accountability and responsibility for AI systems is essential for addressing potential \n",
+      "harms and ensuring ethical behavior. This includes defining roles and responsibilities for \n",
+      "developers, deployers, and users of AI systems. \n",
+      "Chapter 20: Building Trust in AI \n",
+      "Transparency and Explainability \n",
+      "Transparency and explainability are key to building trust in AI. Making AI systems understandable \n",
+      "and providing insights into their decision-making processes helps users assess their reliability \n",
+      "and fairness. \n",
+      "Robustness and Reliability \n",
+      "\n",
+      "=====================================\n",
+      "Context 2:\n",
+      " incidents. \n",
+      "Environmental Monitoring \n",
+      "AI-powered environmental monitoring systems track air and water quality, detect pollution, and \n",
+      "support environmental protection efforts. These systems provide real-time data, identify \n",
+      "pollution sources, and inform environmental policies. \n",
+      "Chapter 15: The Future of AI Research \n",
+      "Advancements in Deep Learning \n",
+      "Continued advancements in deep learning are expected to drive further breakthroughs in AI. \n",
+      "Research is focused on developing more efficient and interpretable deep learning models, as well \n",
+      "as exploring new architectures and training techniques. \n",
+      "Explainable AI (XAI) \n",
+      "Explainable AI (XAI) aims to make AI systems more transparent and understandable. Research in \n",
+      "XAI focuses on developing methods for explaining AI decisions, enhancing trust, and improving \n",
+      "accountability. \n",
+      "AI and Neuroscience \n",
+      "The intersection of AI and neuroscience is a promising area of research. Understanding the \n",
+      "human brain can inspire new AI algorithms and architectures, \n",
+      "=====================================\n"
      ]
     }
    ],
    "source": [
-    "# Define the system prompt for the AI assistant\n",
-    "system_prompt = \"You are an AI assistant that strictly answers based on the given context. If the answer cannot be derived directly from the provided context, respond with: 'I do not have enough information to answer that.'\"\n",
+    "# Load the validation data from a JSON file\n",
+    "with open('data/val.json') as f:\n",
+    "    data = json.load(f)\n",
     "\n",
-    "def generate_response(query, system_prompt, retrieved_chunks, model=\"meta-llama/Llama-3.2-3B-Instruct\"):\n",
-    "    \"\"\"\n",
-    "    Generates an AI response based on retrieved chunks.\n",
+    "# Extract the first query from the validation data\n",
+    "query = data[0]['question']\n",
     "\n",
-    "    Args:\n",
-    "    query (str): User query.\n",
-    "    retrieved_chunks (List[str]): List of retrieved text chunks.\n",
-    "    model (str): AI model.\n",
+    "# Perform semantic search to find the top 2 most relevant text chunks for the query\n",
+    "top_chunks = semantic_search(query, text_chunks, response.data, k=2)\n",
     "\n",
-    "    Returns:\n",
-    "    str: AI-generated response.\n",
-    "    \"\"\"\n",
-    "    # Combine retrieved chunks into a single context string\n",
-    "    context = \"\\n\".join([f\"Context {i+1}:\\n{chunk}\" for i, chunk in enumerate(retrieved_chunks)])\n",
-    "    \n",
-    "    # Create the user prompt by combining the context and the query\n",
-    "    user_prompt = f\"{context}\\n\\nQuestion: {query}\"\n",
+    "# Print the query\n",
+    "print(\"Query:\", query)\n",
     "\n",
-    "    # Generate the AI response using the specified model\n",
-    "    response = client.chat.completions.create(\n",
-    "        model=model,\n",
-    "        temperature=0,\n",
-    "        messages=[\n",
-    "            {\"role\": \"system\", \"content\": system_prompt},\n",
-    "            {\"role\": \"user\", \"content\": user_prompt}\n",
-    "        ]\n",
-    "    )\n",
-    "\n",
-    "    # Return the content of the AI response\n",
-    "    return response.choices[0].message.content\n",
-    "\n",
-    "# Generate AI responses for each chunk size\n",
-    "ai_responses_dict = {size: generate_response(query, system_prompt, retrieved_chunks_dict[size]) for size in chunk_sizes}\n",
-    "\n",
-    "# Print the response for chunk size 256\n",
-    "print(ai_responses_dict[256])"
+    "# Print the top 2 most relevant text chunks\n",
+    "for i, chunk in enumerate(top_chunks):\n",
+    "    print(f\"Context {i + 1}:\\n{chunk}\\n=====================================\")"
    ]
   },
   {
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "## Evaluating the AI Response\n",
-    "We score responses based on faithfulness and relevancy using powerfull llm"
+    "## Generating a Response Based on Retrieved Chunks"
    ]
   },
   {
@@ -391,158 +385,76 @@
    "metadata": {},
    "outputs": [],
    "source": [
-    "# Define evaluation scoring system constants\n",
-    "SCORE_FULL = 1.0     # Complete match or fully satisfactory\n",
-    "SCORE_PARTIAL = 0.5  # Partial match or somewhat satisfactory\n",
-    "SCORE_NONE = 0.0     # No match or unsatisfactory"
+    "# Define the system prompt for the AI assistant\n",
+    "system_prompt = \"You are an AI assistant that strictly answers based on the given context. If the answer cannot be derived directly from the provided context, respond with: 'I do not have enough information to answer that.'\"\n",
+    "\n",
+    "def generate_response(system_prompt, user_message, model=\"meta-llama/Llama-3.2-3B-Instruct\"):\n",
+    "    \"\"\"\n",
+    "    Generates a response from the AI model based on the system prompt and user message.\n",
+    "\n",
+    "    Args:\n",
+    "    system_prompt (str): The system prompt to guide the AI's behavior.\n",
+    "    user_message (str): The user's message or query.\n",
+    "    model (str): The model to be used for generating the response. Default is \"meta-llama/Llama-2-7B-chat-hf\".\n",
+    "\n",
+    "    Returns:\n",
+    "    dict: The response from the AI model.\n",
+    "    \"\"\"\n",
+    "    response = client.chat.completions.create(\n",
+    "        model=model,\n",
+    "        temperature=0,\n",
+    "        messages=[\n",
+    "            {\"role\": \"system\", \"content\": system_prompt},\n",
+    "            {\"role\": \"user\", \"content\": user_message}\n",
+    "        ]\n",
+    "    )\n",
+    "    return response\n",
+    "\n",
+    "# Create the user prompt based on the top chunks\n",
+    "user_prompt = \"\\n\".join([f\"Context {i + 1}:\\n{chunk}\\n=====================================\\n\" for i, chunk in enumerate(top_chunks)])\n",
+    "user_prompt = f\"{user_prompt}\\nQuestion: {query}\"\n",
+    "\n",
+    "# Generate AI response\n",
+    "ai_response = generate_response(system_prompt, user_prompt)"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Evaluating the AI Response\n",
+    "We compare the AI response with the expected answer and assign a score."
    ]
   },
   {
    "cell_type": "code",
    "execution_count": 11,
    "metadata": {},
-   "outputs": [],
-   "source": [
-    "# Define strict evaluation prompt templates\n",
-    "FAITHFULNESS_PROMPT_TEMPLATE = \"\"\"\n",
-    "Evaluate the faithfulness of the AI response compared to the true answer.\n",
-    "User Query: {question}\n",
-    "AI Response: {response}\n",
-    "True Answer: {true_answer}\n",
-    "\n",
-    "Faithfulness measures how well the AI response aligns with facts in the true answer, without hallucinations.\n",
-    "\n",
-    "INSTRUCTIONS:\n",
-    "- Score STRICTLY using only these values:\n",
-    "    * {full} = Completely faithful, no contradictions with true answer\n",
-    "    * {partial} = Partially faithful, minor contradictions\n",
-    "    * {none} = Not faithful, major contradictions or hallucinations\n",
-    "- Return ONLY the numerical score ({full}, {partial}, or {none}) with no explanation or additional text.\n",
-    "\"\"\""
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 12,
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "RELEVANCY_PROMPT_TEMPLATE = \"\"\"\n",
-    "Evaluate the relevancy of the AI response to the user query.\n",
-    "User Query: {question}\n",
-    "AI Response: {response}\n",
-    "\n",
-    "Relevancy measures how well the response addresses the user's question.\n",
-    "\n",
-    "INSTRUCTIONS:\n",
-    "- Score STRICTLY using only these values:\n",
-    "    * {full} = Completely relevant, directly addresses the query\n",
-    "    * {partial} = Partially relevant, addresses some aspects\n",
-    "    * {none} = Not relevant, fails to address the query\n",
-    "- Return ONLY the numerical score ({full}, {partial}, or {none}) with no explanation or additional text.\n",
-    "\"\"\""
-   ]
-  },
-  {
-   "cell_type": "code",
-   "execution_count": 13,
-   "metadata": {},
    "outputs": [
     {
      "name": "stdout",
      "output_type": "stream",
      "text": [
-      "Faithfulness Score (Chunk Size 256): 0.5\n",
-      "Relevancy Score (Chunk Size 256): 0.5\n",
+      "Based on the evaluation criteria, I would assign a score of 0.8 to the AI assistant's response.\n",
       "\n",
+      "The AI assistant's response is very close to the true response, but there are some minor differences. The true response mentions \"transparency\" and \"accountability\" explicitly, which are not mentioned in the AI assistant's response. However, the overall meaning and content of the response are identical, and the AI assistant's response effectively conveys the importance of Explainable AI in building trust and ensuring fairness in AI systems.\n",
       "\n",
-      "Faithfulness Score (Chunk Size 128): 0.5\n",
-      "Relevancy Score (Chunk Size 128): 0.5\n"
+      "Therefore, the score of 0.8 reflects the AI assistant's response being very close to the true response, but not perfectly aligned.\n"
      ]
     }
    ],
    "source": [
-    "def evaluate_response(question, response, true_answer):\n",
-    "        \"\"\"\n",
-    "        Evaluates the quality of an AI-generated response based on faithfulness and relevancy.\n",
+    "# Define the system prompt for the evaluation system\n",
+    "evaluate_system_prompt = \"You are an intelligent evaluation system tasked with assessing the AI assistant's responses. If the AI assistant's response is very close to the true response, assign a score of 1. If the response is incorrect or unsatisfactory in relation to the true response, assign a score of 0. If the response is partially aligned with the true response, assign a score of 0.5.\"\n",
     "\n",
-    "        Args:\n",
-    "        question (str): The user's original question.\n",
-    "        response (str): The AI-generated response being evaluated.\n",
-    "        true_answer (str): The correct answer used as ground truth.\n",
+    "# Create the evaluation prompt by combining the user query, AI response, true response, and evaluation system prompt\n",
+    "evaluation_prompt = f\"User Query: {query}\\nAI Response:\\n{ai_response.choices[0].message.content}\\nTrue Response: {data[0]['ideal_answer']}\\n{evaluate_system_prompt}\"\n",
     "\n",
-    "        Returns:\n",
-    "        Tuple[float, float]: A tuple containing (faithfulness_score, relevancy_score).\n",
-    "                                                Each score is one of: 1.0 (full), 0.5 (partial), or 0.0 (none).\n",
-    "        \"\"\"\n",
-    "        # Format the evaluation prompts\n",
-    "        faithfulness_prompt = FAITHFULNESS_PROMPT_TEMPLATE.format(\n",
-    "                question=question, \n",
-    "                response=response, \n",
-    "                true_answer=true_answer,\n",
-    "                full=SCORE_FULL,\n",
-    "                partial=SCORE_PARTIAL,\n",
-    "                none=SCORE_NONE\n",
-    "        )\n",
-    "        \n",
-    "        relevancy_prompt = RELEVANCY_PROMPT_TEMPLATE.format(\n",
-    "                question=question, \n",
-    "                response=response,\n",
-    "                full=SCORE_FULL,\n",
-    "                partial=SCORE_PARTIAL,\n",
-    "                none=SCORE_NONE\n",
-    "        )\n",
+    "# Generate the evaluation response using the evaluation system prompt and evaluation prompt\n",
+    "evaluation_response = generate_response(evaluate_system_prompt, evaluation_prompt)\n",
     "\n",
-    "        # Request faithfulness evaluation from the model\n",
-    "        faithfulness_response = client.chat.completions.create(\n",
-    "               model=\"meta-llama/Llama-3.2-3B-Instruct\",\n",
-    "                temperature=0,\n",
-    "                messages=[\n",
-    "                        {\"role\": \"system\", \"content\": \"You are an objective evaluator. Return ONLY the numerical score.\"},\n",
-    "                        {\"role\": \"user\", \"content\": faithfulness_prompt}\n",
-    "                ]\n",
-    "        )\n",
-    "        \n",
-    "        # Request relevancy evaluation from the model\n",
-    "        relevancy_response = client.chat.completions.create(\n",
-    "                model=\"meta-llama/Llama-3.2-3B-Instruct\",\n",
-    "                temperature=0,\n",
-    "                messages=[\n",
-    "                        {\"role\": \"system\", \"content\": \"You are an objective evaluator. Return ONLY the numerical score.\"},\n",
-    "                        {\"role\": \"user\", \"content\": relevancy_prompt}\n",
-    "                ]\n",
-    "        )\n",
-    "        \n",
-    "        # Extract scores and handle potential parsing errors\n",
-    "        try:\n",
-    "                faithfulness_score = float(faithfulness_response.choices[0].message.content.strip())\n",
-    "        except ValueError:\n",
-    "                print(\"Warning: Could not parse faithfulness score, defaulting to 0\")\n",
-    "                faithfulness_score = 0.0\n",
-    "                \n",
-    "        try:\n",
-    "                relevancy_score = float(relevancy_response.choices[0].message.content.strip())\n",
-    "        except ValueError:\n",
-    "                print(\"Warning: Could not parse relevancy score, defaulting to 0\")\n",
-    "                relevancy_score = 0.0\n",
-    "\n",
-    "        return faithfulness_score, relevancy_score\n",
-    "\n",
-    "# True answer for the first validation data\n",
-    "true_answer = data[3]['ideal_answer']\n",
-    "\n",
-    "# Evaluate response for chunk size 256 and 128\n",
-    "faithfulness, relevancy = evaluate_response(query, ai_responses_dict[256], true_answer)\n",
-    "faithfulness2, relevancy2 = evaluate_response(query, ai_responses_dict[128], true_answer)\n",
-    "\n",
-    "# print the evaluation scores\n",
-    "print(f\"Faithfulness Score (Chunk Size 256): {faithfulness}\")\n",
-    "print(f\"Relevancy Score (Chunk Size 256): {relevancy}\")\n",
-    "\n",
-    "print(f\"\\n\")\n",
-    "\n",
-    "print(f\"Faithfulness Score (Chunk Size 128): {faithfulness2}\")\n",
-    "print(f\"Relevancy Score (Chunk Size 128): {relevancy2}\")"
+    "# Print the evaluation response\n",
+    "print(evaluation_response.choices[0].message.content)"
    ]
   }
  ],
